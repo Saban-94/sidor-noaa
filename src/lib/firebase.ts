@@ -14,23 +14,13 @@ import {
   limit 
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-
-// Firebase configuration using the values from firebase-applet-config.json
-const firebaseConfig = {
-  apiKey: "AIzaSyAQzXHpiSVBqbU1zXVXtl4tDtEPnqkdeUI",
-  authDomain: "saban-ai-drive.firebaseapp.com",
-  projectId: "saban-ai-drive",
-  storageBucket: "saban-ai-drive.firebasestorage.app",
-  messagingSenderId: "516446483197",
-  appId: "1:516446483197:web:21fc622f56c4e2a3050494",
-  measurementId: "G-J88TZL18VY"
-};
+import firebaseConfig from '../../firebase-applet-config.json';
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore specifying the databaseId from firebase-applet-config.json
-export const db = getFirestore(app, "ai-studio-df8dee5a-8dc1-4f29-aa79-51f2e49ace71");
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 // Initialize Auth
 export const auth = getAuth(app);
@@ -134,6 +124,59 @@ export async function seedInitialDataIfNeeded() {
     }
   } catch (error) {
     console.error('Error seeding Firestore collections:', error);
+    try {
+      handleFirestoreError(error, OperationType.WRITE, 'seeding');
+    } catch (err) {
+      // Don't crash startup during seeding, but log detailed diagnostics
+    }
   }
 }
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 export { app };
