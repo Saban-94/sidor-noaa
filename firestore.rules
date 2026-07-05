@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net - Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions for validation
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    function isValidDictionaryItem(data) {
+      return data.sku is string && data.sku.size() <= 100
+        && data.name is string && data.name.size() <= 500
+        && data.qty_per_pallet is number
+        && data.requires_bag is string
+        && data.requires_pallet is string;
+    }
+
+    function isValidCustomer(data) {
+      return data.name is string && data.name.size() <= 200
+        && (data.get('phone', null) == null || (data.phone is string && data.phone.size() <= 50))
+        && (data.get('email', null) == null || (data.email is string && data.email.size() <= 200))
+        && (data.get('address', null) == null || (data.address is string && data.address.size() <= 500))
+        && data.balance is number
+        && data.unreturned_pallets is number
+        && data.unreturned_bags is number;
+    }
+
+    function isValidOrder(data) {
+      return data.order_number is string && data.order_number.size() <= 100
+        && data.customer_name is string && data.customer_name.size() <= 200
+        && data.warehouse is string && data.warehouse.size() <= 200
+        && data.items_string is string && data.items_string.size() <= 1000
+        && data.deposit_status is string
+        && data.pallet_status is string
+        && data.status is string
+        && (data.get('rejection_reason', null) == null || (data.rejection_reason is string && data.rejection_reason.size() <= 1000))
+        && data.total_amount is number;
+    }
+
+    // Dictionary collection rules
+    match /dictionary/{item} {
+      allow read: if true;
+      allow create, update: if isValidDictionaryItem(request.resource.data);
+      allow delete: if true;
+    }
+
+    // Customers collection rules
+    match /customers/{customer} {
+      allow read: if true;
+      allow create, update: if isValidCustomer(request.resource.data);
+      allow delete: if true;
+    }
+
+    // Orders collection rules
+    match /orders/{order} {
+      allow read: if true;
+      allow create, update: if isValidOrder(request.resource.data);
+      allow delete: if true;
+    }
+  }
+}

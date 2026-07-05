@@ -1,0 +1,6 @@
+{
+  "name": "SBN Logistics ERP",
+  "description": "Enterprise-grade Logistics ERP for SBN Logistics featuring Live Orders Center, Customer Portfolios, Logistics Dictionary, and Noa AI room.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "DictionaryItem": {
+      "title": "DictionaryItem",
+      "description": "A logistics catalog product/SKU with pallet/bag requirements",
+      "type": "object",
+      "properties": {
+        "sku": { "type": "string", "description": "The unique stock keeping unit code" },
+        "name": { "type": "string", "description": "The name of the catalog product" },
+        "qty_per_pallet": { "type": "number", "description": "Quantity of standard packs per pallet" },
+        "requires_bag": { "type": "string", "enum": ["כן", "לא"], "description": "Whether a standard big bag (bela) is required" },
+        "requires_pallet": { "type": "string", "enum": ["כן", "לא"], "description": "Whether a wooden pallet is required" }
+      },
+      "required": ["sku", "name", "qty_per_pallet", "requires_bag", "requires_pallet"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "A customer profile tracking balance, credit status and unreturned items",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Unique business or private name" },
+        "phone": { "type": "string", "description": "Contact phone number" },
+        "email": { "type": "string", "description": "Contact email address" },
+        "address": { "type": "string", "description": "Delivery/billing address" },
+        "balance": { "type": "number", "description": "Financial balance (positive is credit, negative is debt)" },
+        "unreturned_pallets": { "type": "number", "description": "Count of wooden pallets currently owed by the customer" },
+        "unreturned_bags": { "type": "number", "description": "Count of big bags (belot) currently owed by the customer" }
+      },
+      "required": ["name", "phone", "email", "address", "balance", "unreturned_pallets", "unreturned_bags"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A logistics or delivery order with pallet/bag compliance and approval statuses",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "description": "ISO 8601 creation timestamp string" },
+        "order_number": { "type": "string", "description": "Unique purchase order/delivery note code" },
+        "customer_name": { "type": "string", "description": "The matching customer name" },
+        "warehouse": { "type": "string", "description": "The source warehouse name" },
+        "items_string": { "type": "string", "description": "A human-readable description of materials" },
+        "deposit_status": { "type": "string", "enum": ["OK", "❌"], "description": "Deposit compliance status" },
+        "pallet_status": { "type": "string", "enum": ["OK", "❌"], "description": "Pallet return/deposit compliance status" },
+        "status": { "type": "string", "description": "Current workflow state (ממתין, בטיפול, בדרך, נמסר, מבוטל)" },
+        "rejection_reason": { "type": "string", "description": "Explanation if order is rejected or flag-blocked" },
+        "total_amount": { "type": "number", "description": "Total order value in ILS" }
+      },
+      "required": ["timestamp", "order_number", "customer_name", "warehouse", "items_string", "deposit_status", "pallet_status", "status", "rejection_reason", "total_amount"]
+    }
+  },
+  "firestore": {
+    "dictionary": {
+      "schema": { "$ref": "#/entities/DictionaryItem" },
+      "description": "Logistic stock catalog items and their handling details"
+    },
+    "customers": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Client accounts and active asset balances"
+    },
+    "orders": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Operational delivery orders and logistics status"
+    }
+  }
+}
