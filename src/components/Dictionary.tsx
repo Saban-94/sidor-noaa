@@ -115,10 +115,12 @@ export default function Dictionary() {
     }
   };
 
-  const filteredItems = items.filter(i => 
-    i.sku.toLowerCase().includes(search.toLowerCase()) ||
-    i.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredItems = items.filter(i => {
+    const searchVal = (search || '').toLowerCase();
+    const itemSku = (i?.sku || '').toLowerCase();
+    const itemName = (i?.name || '').toLowerCase();
+    return itemSku.includes(searchVal) || itemName.includes(searchVal);
+  });
 
   return (
     <div className="space-y-6 text-right" dir="rtl">

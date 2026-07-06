@@ -96,28 +96,33 @@ export default function Customers() {
       return;
     }
 
-    const merged = sheetCustomerNames.map((sheetCust: any) => {
-      const fsCust = rawCustomers.find(c => c.name.trim().toLowerCase() === sheetCust.name.trim().toLowerCase());
-      const custOrders = orders.filter(o => o.customer_name.trim().toLowerCase() === sheetCust.name.trim().toLowerCase());
-      
-      const unreturnedPallets = custOrders.filter(o => o.pallet_status === '❌' && o.status !== 'בוטל').length;
-      const unreturnedBags = custOrders.filter(o => o.deposit_status === '❌' && o.status !== 'בוטל').length;
-      
-      const totalAmountSum = custOrders
-        .filter(o => o.status !== 'בוטל')
-        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+    const merged = sheetCustomerNames
+      .map((sheetCust: any) => {
+        const sheetCustName = (sheetCust?.name || '').trim().toLowerCase();
+        if (!sheetCustName) return null;
 
-      return {
-        id: fsCust?.id || sheetCust.name,
-        name: sheetCust.name,
-        phone: fsCust?.phone || 'לא צוין טלפון',
-        email: fsCust?.email || 'לא צוין אימייל',
-        address: fsCust?.address || 'לא צוין כתובת',
-        balance: fsCust?.balance !== undefined ? fsCust.balance : totalAmountSum,
-        unreturned_pallets: unreturnedPallets,
-        unreturned_bags: unreturnedBags,
-      };
-    });
+        const fsCust = rawCustomers.find(c => (c?.name || '').trim().toLowerCase() === sheetCustName);
+        const custOrders = orders.filter(o => (o?.customer_name || '').trim().toLowerCase() === sheetCustName);
+        
+        const unreturnedPallets = custOrders.filter(o => o?.pallet_status === '❌' && o?.status !== 'בוטל').length;
+        const unreturnedBags = custOrders.filter(o => o?.deposit_status === '❌' && o?.status !== 'בוטל').length;
+        
+        const totalAmountSum = custOrders
+          .filter(o => o?.status !== 'בוטל')
+          .reduce((sum, o) => sum + (Number(o?.total_amount) || 0), 0);
+
+        return {
+          id: fsCust?.id || sheetCust.name,
+          name: sheetCust.name,
+          phone: fsCust?.phone || 'לא צוין טלפון',
+          email: fsCust?.email || 'לא צוין אימייל',
+          address: fsCust?.address || 'לא צוין כתובת',
+          balance: fsCust?.balance !== undefined ? fsCust.balance : totalAmountSum,
+          unreturned_pallets: unreturnedPallets,
+          unreturned_bags: unreturnedBags,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
 
     setCustomers(merged);
     setLoading(false);
@@ -207,15 +212,18 @@ export default function Customers() {
     }
   };
 
-  const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.email && c.email.toLowerCase().includes(search.toLowerCase())) ||
-    (c.phone && c.phone.includes(search))
-  );
+  const filteredCustomers = customers.filter(c => {
+    const cName = (c?.name || '').toLowerCase();
+    const searchVal = (search || '').toLowerCase();
+    const cEmail = (c?.email || '').toLowerCase();
+    const cPhone = c?.phone || '';
+    return cName.includes(searchVal) || cEmail.includes(searchVal) || cPhone.includes(search);
+  });
 
   // Get specific customer orders
   const getCustomerOrders = (customerName: string) => {
-    return orders.filter(o => o.customer_name.toLowerCase() === customerName.toLowerCase());
+    const cleanCustName = (customerName || '').trim().toLowerCase();
+    return orders.filter(o => (o?.customer_name || '').trim().toLowerCase() === cleanCustName);
   };
 
   // Generate Custom SVG Chart Data for selected customer

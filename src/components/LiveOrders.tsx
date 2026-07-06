@@ -342,12 +342,13 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
   };
 
   const filteredOrders = orders.filter((o) => {
+    const searchVal = (search || '').toLowerCase();
     const matchesSearch = 
-      o.customer_name.toLowerCase().includes(search.toLowerCase()) || 
-      o.order_number.toLowerCase().includes(search.toLowerCase()) || 
-      o.items_string.toLowerCase().includes(search.toLowerCase());
+      (o?.customer_name || '').toLowerCase().includes(searchVal) || 
+      (o?.order_number || '').toLowerCase().includes(searchVal) || 
+      (o?.items_string || '').toLowerCase().includes(searchVal);
     
-    const matchesStatus = statusFilter === 'all' ? true : o.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' ? true : o?.status === statusFilter;
     
     return matchesSearch && matchesStatus;
   });
