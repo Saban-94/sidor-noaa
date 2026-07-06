@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import useSWR from 'swr';
-import { sheetsFetcher } from '../lib/fetcher';
+import { sheetsFetcher, GOOGLE_SCRIPT_API_URL } from '../lib/fetcher';
 import { 
   collection, 
   onSnapshot, 
@@ -104,14 +104,14 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
 
   // Poll live orders
   const { data: sheetOrders, mutate: mutateOrders } = useSWR(
-    '/api/sheets/proxy?action=getLiveOrders',
+    `${GOOGLE_SCRIPT_API_URL}?action=getLiveOrders`,
     sheetsFetcher,
     { refreshInterval: 5000 }
   );
 
   // Poll dictionary
   const { data: sheetDictionary } = useSWR(
-    '/api/sheets/proxy?action=getDictionary',
+    `${GOOGLE_SCRIPT_API_URL}?action=getDictionary`,
     sheetsFetcher,
     { refreshInterval: 10000 }
   );
@@ -212,9 +212,9 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
         const allOrders = ordersSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
         const allDict = dictSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
         
-        await fetch('/api/sheets/proxy', {
+        await fetch(GOOGLE_SCRIPT_API_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify({
             action: 'syncAllFromFirebase',
             orders: allOrders,
@@ -253,9 +253,9 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
       // Update Google Sheets
       if (matchedOrder) {
         try {
-          await fetch('/api/sheets/proxy', {
+          await fetch(GOOGLE_SCRIPT_API_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify({
               action: 'updateOrder',
               orderId: matchedOrder.order_number,
@@ -286,9 +286,9 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
       // Update Google Sheets
       if (matchedOrder) {
         try {
-          await fetch('/api/sheets/proxy', {
+          await fetch(GOOGLE_SCRIPT_API_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify({
               action: 'updateOrder',
               orderId: matchedOrder.order_number,
@@ -320,9 +320,9 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
           const allOrders = ordersSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
           const allDict = dictSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
           
-          await fetch('/api/sheets/proxy', {
+          await fetch(GOOGLE_SCRIPT_API_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify({
               action: 'syncAllFromFirebase',
               orders: allOrders,
@@ -557,7 +557,7 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200/50 dark:divide-slate-800/80">
-                {filteredOrders.map((order) => {
+                {filteredOrders.map((order, idx) => {
                   // Perfect order checks: No issues in deposit and pallet
                   const isPerfect = order.deposit_status === 'OK' && order.pallet_status === 'OK';
                   const hasIssues = order.deposit_status === '❌' || order.pallet_status === '❌';
@@ -569,7 +569,7 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
                     : 'bg-amber-500/5 hover:bg-amber-500/10 dark:bg-amber-950/10 dark:hover:bg-amber-950/20 text-amber-950 dark:text-amber-100';
 
                   return (
-                    <tr key={order.id} className={`transition-all duration-150 ${rowClass}`}>
+                    <tr key={order.order_number || order.id || idx} className={`transition-all duration-150 ${rowClass}`}>
                       {/* Hour */}
                       <td className="p-3.5 whitespace-nowrap font-medium text-slate-500 dark:text-slate-400">
                         {order.timestamp ? new Date(order.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '—'}
@@ -725,8 +725,8 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
                     value={selectedSku}
                     onChange={(e) => setSelectedSku(e.target.value)}
                   >
-                    {dictionaryItems.map((item) => (
-                      <option key={item.id} value={item.sku}>
+                    {dictionaryItems.map((item, idx) => (
+                      <option key={item.sku || item.id || idx} value={item.sku}>
                         {item.name} ({item.sku})
                       </option>
                     ))}

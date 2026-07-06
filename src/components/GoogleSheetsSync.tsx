@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
+import { GOOGLE_SCRIPT_API_URL } from '../lib/fetcher';
 import { collection, getDocs, doc, updateDoc, addDoc } from 'firebase/firestore';
 
 interface SheetCustomer {
@@ -110,7 +111,7 @@ export default function GoogleSheetsSync() {
     setNetworkPulse(true);
     try {
       // 1. Fetch Live Orders
-      const orderRes = await fetch('/api/sheets/proxy?action=getLiveOrders');
+      const orderRes = await fetch(`${GOOGLE_SCRIPT_API_URL}?action=getLiveOrders`);
       if (orderRes.ok) {
         const orderDataResult = await orderRes.json();
         if (orderDataResult.success && Array.isArray(orderDataResult.data)) {
@@ -120,7 +121,7 @@ export default function GoogleSheetsSync() {
       }
 
       // 2. Fetch Customer CRM tabs list
-      const custRes = await fetch('/api/sheets/proxy?action=getCustomerList');
+      const custRes = await fetch(`${GOOGLE_SCRIPT_API_URL}?action=getCustomerList`);
       if (custRes.ok) {
         const custDataResult = await custRes.json();
         if (custDataResult.success && Array.isArray(custDataResult.data)) {
@@ -130,7 +131,7 @@ export default function GoogleSheetsSync() {
       }
 
       // 3. Fetch Dictionary items
-      const dictRes = await fetch('/api/sheets/proxy?action=getDictionary');
+      const dictRes = await fetch(`${GOOGLE_SCRIPT_API_URL}?action=getDictionary`);
       if (dictRes.ok) {
         const dictDataResult = await dictRes.json();
         if (dictDataResult.success && Array.isArray(dictDataResult.data)) {
@@ -172,7 +173,7 @@ export default function GoogleSheetsSync() {
     addLog(`טוען נתונים עבור כרטיס לקוח: "${customer.name}"...`);
 
     try {
-      const response = await fetch(`/api/sheets/proxy?action=getCustomerData&name=${encodeURIComponent(customer.name)}`);
+      const response = await fetch(`${GOOGLE_SCRIPT_API_URL}?action=getCustomerData&name=${encodeURIComponent(customer.name)}`);
       if (!response.ok) {
         throw new Error(`שגיאת שרת: ${response.statusText}`);
       }
@@ -194,10 +195,10 @@ export default function GoogleSheetsSync() {
   // DELIVERABLE 2.3: POST capability helper
   const updateSheetData = async (payload: any) => {
     addLog(`שולח עדכון נתונים לגליון: ${payload.action}...`);
-    const response = await fetch('/api/sheets/proxy', {
+    const response = await fetch(GOOGLE_SCRIPT_API_URL, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'text/plain',
       },
       body: JSON.stringify(payload)
     });

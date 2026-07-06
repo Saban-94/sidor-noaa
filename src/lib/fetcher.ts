@@ -1,5 +1,7 @@
 import { mutate } from 'swr';
 
+export const GOOGLE_SCRIPT_API_URL = 'https://script.google.com/macros/s/AKfycbzZPSpu15sbrfuWVwzYEcSKYhTCXG6jPJlgqvKuBBCQaZTR8gT9n7YX3AXnaLZs_vThOA/exec';
+
 // Track global offline status using a simple custom event
 let isOffline = false;
 

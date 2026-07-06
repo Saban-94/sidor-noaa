@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import useSWR from 'swr';
-import { sheetsFetcher } from '../lib/fetcher';
+import { sheetsFetcher, GOOGLE_SCRIPT_API_URL } from '../lib/fetcher';
 import { 
   collection, 
   onSnapshot, 
@@ -58,14 +58,14 @@ export default function Customers() {
 
   // 1. Fetch live customer sheet names
   const { data: sheetCustomerNames } = useSWR(
-    '/api/sheets/proxy?action=getCustomerList',
+    `${GOOGLE_SCRIPT_API_URL}?action=getCustomerList`,
     sheetsFetcher,
     { refreshInterval: 5000 }
   );
 
   // 2. Fetch live sheet orders
   const { data: sheetOrders } = useSWR(
-    '/api/sheets/proxy?action=getLiveOrders',
+    `${GOOGLE_SCRIPT_API_URL}?action=getLiveOrders`,
     sheetsFetcher,
     { refreshInterval: 5000 }
   );
@@ -171,9 +171,9 @@ export default function Customers() {
         const allOrders = ordersSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
         const allDict = dictSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
         
-        await fetch('/api/sheets/proxy', {
+        await fetch(GOOGLE_SCRIPT_API_URL, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'text/plain' },
           body: JSON.stringify({
             action: 'syncAllFromFirebase',
             orders: allOrders,

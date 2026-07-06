@@ -281,8 +281,8 @@ export default function App() {
               <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">סטטוס מערכת</span>
               <span className={`w-2.5 h-2.5 rounded-full ${isSheetsOffline ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse' : 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse'}`}></span>
             </div>
-            <p className="text-[11px] font-mono text-slate-300 tracking-tighter">
-              {isSheetsOffline ? 'SHEETS_API: OFFLINE ⚠️' : 'SHEETS_API: ONLINE ✓'}
+            <p className="text-[11px] font-medium text-slate-300">
+              {isSheetsOffline ? 'ממתין לחיבור... ⚠️' : 'SHEETS_API: ONLINE ✓'}
             </p>
           </div>
 
@@ -329,9 +329,9 @@ export default function App() {
             <div className="flex gap-5">
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-400">סטטוס מסד</span>
-                <span className={`text-xs font-bold flex items-center gap-1 ${isSheetsOffline ? 'text-red-500' : 'text-emerald-500'}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${isSheetsOffline ? 'bg-red-500' : 'bg-emerald-500'}`}></span>
-                  {isSheetsOffline ? 'חיבור Google Sheets נכשל' : 'מחובר ל-Google Sheets Live'}
+                <span className={`text-xs font-bold flex items-center gap-1 ${isSheetsOffline ? 'text-amber-500 animate-pulse' : 'text-emerald-500'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isSheetsOffline ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+                  {isSheetsOffline ? 'ממתין לחיבור...' : 'מחובר ל-Google Sheets Live'}
                 </span>
               </div>
               <div className="flex flex-col">
@@ -400,10 +400,10 @@ export default function App() {
 
       {/* Floating Offline Notification */}
       {isSheetsOffline && (
-        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 z-50 bg-red-600 dark:bg-red-950 text-white dark:text-red-100 px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-red-500 dark:border-red-900 animate-bounce">
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 z-50 bg-amber-600 dark:bg-amber-950 text-white dark:text-amber-100 px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-amber-500 dark:border-amber-900 animate-bounce">
           <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping shrink-0"></span>
           <p className="text-xs font-black">
-            שרת Google Sheets אינו זמין (Offline) • המערכת פועלת במצב מקומי מסונכרן
+            ממתין לחיבור... • המערכת פועלת במצב מקומי מסונכרן
           </p>
         </div>
       )}
