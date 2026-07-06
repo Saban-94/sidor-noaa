@@ -129,7 +129,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
 // GET proxy for Google Sheets Apps Script Web App
 app.get('/api/sheets/proxy', async (req: Request, res: Response) => {
-  const url = 'https://script.google.com/macros/s/AKfycbMkx0MaO3jfXbSEo-cYIncJznumDQoK5fyO4OpWeY5Wf3C9UoN8baFwvh-z2Q37QMNXQ/exec';
+  const url = 'https://script.google.com/macros/s/AKfycbwGjk4V6fpTKnnLsVApEwd4GBv0npoN4IfaSXK1CZdkpifiNNm1dfCk3dBuOe7sVK430g/exec';
   const queryString = new URLSearchParams(req.query as any).toString();
   const targetUrl = queryString ? `${url}?${queryString}` : url;
 
@@ -158,7 +158,7 @@ app.get('/api/sheets/proxy', async (req: Request, res: Response) => {
 
 // POST proxy for Google Sheets Apps Script Web App
 app.post('/api/sheets/proxy', async (req: Request, res: Response) => {
-  const url = 'https://script.google.com/macros/s/AKfycbMkx0MaO3jfXbSEo-cYIncJznumDQoK5fyO4OpWeY5Wf3C9UoN8baFwvh-z2Q37QMNXQ/exec';
+  const url = 'https://script.google.com/macros/s/AKfycbwGjk4V6fpTKnnLsVApEwd4GBv0npoN4IfaSXK1CZdkpifiNNm1dfCk3dBuOe7sVK430g/exec';
   
   try {
     console.log(`[Google Sheets POST Proxy] Sending data to Apps Script:`, req.body);
