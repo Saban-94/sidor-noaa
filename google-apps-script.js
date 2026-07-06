@@ -49,7 +49,7 @@ function doGet(e) {
     
     if (action === "getLiveOrders") {
       const sheet = getOrCreateSheet(ss, "לוג_הזמנות_מערכת", [
-        "Order ID", "Timestamp", "Customer Name", "Warehouse", "Items", "Deposit Status", "Pallet Status", "Status", "Rejection Reason", "Total Amount"
+        "Order ID", "Timestamp", "Customer Name", "Warehouse", "Items", "Deposit Status", "Pallet Status", "Status", "Rejection Reason", "Total Amount", "Delivery Date", "Delivery Time"
       ]);
       result.data = readSheetAsJSON(sheet);
       result.success = true;
@@ -120,27 +120,32 @@ function doPost(e) {
       const status = payload.status;
       const rejectionReason = payload.rejectionReason || "";
       const customerName = payload.customerName;
+      const deliveryDate = payload.deliveryDate || "";
+      const deliveryTime = payload.deliveryTime || "";
       
       if (!orderId) {
         throw new Error("Missing 'orderId' for updateOrder action");
       }
       
       // 1. Update in master log ('לוג_הזמנות_מערכת')
-      const masterSheet = getOrCreateSheet(ss, "לוג_הזמנות_מערכת");
-      const masterUpdated = updateRowInSheet(masterSheet, "Order ID", orderId, {
-        "Status": status,
-        "Rejection Reason": rejectionReason
-      });
+      const masterSheet = getOrCreateSheet(ss, "לוג_הזמנות_מערכת", [
+        "Order ID", "Timestamp", "Customer Name", "Warehouse", "Items", "Deposit Status", "Pallet Status", "Status", "Rejection Reason", "Total Amount", "Delivery Date", "Delivery Time"
+      ]);
+      
+      const updateData = {};
+      if (status) updateData["Status"] = status;
+      if (rejectionReason !== undefined) updateData["Rejection Reason"] = rejectionReason;
+      if (deliveryDate !== undefined) updateData["Delivery Date"] = deliveryDate;
+      if (deliveryTime !== undefined) updateData["Delivery Time"] = deliveryTime;
+      
+      const masterUpdated = updateRowInSheet(masterSheet, "Order ID", orderId, updateData);
       
       // 2. Update in customer card tab
       let customerUpdated = false;
       if (customerName) {
         const customerSheet = ss.getSheetByName(customerName);
         if (customerSheet) {
-          customerUpdated = updateRowInSheet(customerSheet, "Order ID", orderId, {
-            "Status": status,
-            "Rejection Reason": rejectionReason
-          });
+          customerUpdated = updateRowInSheet(customerSheet, "Order ID", orderId, updateData);
         }
       }
       
@@ -151,7 +156,38 @@ function doPost(e) {
         customerUpdated: customerUpdated
       };
     } 
-    else if (action === "updateDictionary") {
+    else if (action === "deleteCustomer") {
+      const customerName = payload.customerName;
+      if (!customerName) {
+        throw new Error("Missing 'customerName' for deleteCustomer action");
+      }
+      const sheet = ss.getSheetByName(customerName);
+      if (sheet) {
+        ss.deleteSheet(sheet);
+        result.success = true;
+        result.data = "Customer sheet '" + customerName + "' deleted successfully.";
+      } else {
+        throw new Error("Customer sheet '" + customerName + "' not found.");
+      }
+    }
+    else if (action === "deleteDictionaryItem") {
+      const sku = payload.sku;
+      if (!sku) {
+        throw new Error("Missing 'sku' for deleteDictionaryItem action");
+      }
+      const dictSheet = getOrCreateSheet(ss, "מילון_לוגיסטי", [
+        "SKU", "Name", "Qty Per Pallet", "Requires Bag", "Requires Pallet"
+      ]);
+      const rowIndex = findRowIndexByValue(dictSheet, "SKU", sku);
+      if (rowIndex) {
+        dictSheet.deleteRow(rowIndex);
+        result.success = true;
+        result.data = "SKU '" + sku + "' deleted from dictionary.";
+      } else {
+        throw new Error("SKU '" + sku + "' not found in dictionary.");
+      }
+    }
+    else if (action === "editDictionaryItem" || action === "updateDictionary") {
       const sku = payload.sku;
       const name = payload.name;
       const qtyPerPallet = Number(payload.qtyPerPallet || 40);
@@ -159,7 +195,7 @@ function doPost(e) {
       const requiresPallet = payload.requiresPallet || "כן";
       
       if (!sku) {
-        throw new Error("Missing 'sku' for updateDictionary action");
+        throw new Error("Missing 'sku' for editDictionaryItem/updateDictionary action");
       }
       
       const dictSheet = getOrCreateSheet(ss, "מילון_לוגיסטי", [
@@ -180,15 +216,15 @@ function doPost(e) {
       // Direct bulk writing/syncing capability for robust backups
       if (payload.orders && Array.isArray(payload.orders)) {
         const masterSheet = getOrCreateSheet(ss, "לוג_הזמנות_מערכת", [
-          "Order ID", "Timestamp", "Customer Name", "Warehouse", "Items", "Deposit Status", "Pallet Status", "Status", "Rejection Reason", "Total Amount"
+          "Order ID", "Timestamp", "Customer Name", "Warehouse", "Items", "Deposit Status", "Pallet Status", "Status", "Rejection Reason", "Total Amount", "Delivery Date", "Delivery Time"
         ]);
         masterSheet.clearContents();
         masterSheet.appendRow([
-          "Order ID", "Timestamp", "Customer Name", "Warehouse", "Items", "Deposit Status", "Pallet Status", "Status", "Rejection Reason", "Total Amount"
+          "Order ID", "Timestamp", "Customer Name", "Warehouse", "Items", "Deposit Status", "Pallet Status", "Status", "Rejection Reason", "Total Amount", "Delivery Date", "Delivery Time"
         ]);
         payload.orders.forEach(o => {
           masterSheet.appendRow([
-            o.order_number, o.timestamp, o.customer_name, o.warehouse, o.items_string, o.deposit_status, o.pallet_status, o.status, o.rejection_reason, o.total_amount
+            o.order_number, o.timestamp, o.customer_name, o.warehouse, o.items_string, o.deposit_status, o.pallet_status, o.status, o.rejection_reason || "", o.total_amount || 0, o.deliveryDate || "", o.deliveryTime || ""
           ]);
           
           // Also dynamically ensure customer tabs and append rows
@@ -199,7 +235,7 @@ function doPost(e) {
             // check duplicate before append
             if (!findRowIndexByValue(custSheet, "Order ID", o.order_number)) {
               custSheet.appendRow([
-                o.order_number, o.timestamp, o.warehouse, o.items_string, o.status, o.total_amount
+                o.order_number, o.timestamp, o.warehouse, o.items_string, o.status, o.total_amount || 0
               ]);
             }
           }

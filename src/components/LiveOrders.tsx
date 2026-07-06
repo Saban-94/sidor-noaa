@@ -359,6 +359,26 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
     }
   };
 
+  const isOrderOverdue = (deliveryDateStr?: string, deliveryTimeStr?: string, orderStatus?: string) => {
+    if (!deliveryDateStr) return false;
+    if (orderStatus === 'נמסר' || orderStatus === 'מבוטל' || orderStatus === 'בוטל') return false;
+    try {
+      const [year, month, day] = deliveryDateStr.split('-');
+      let hours = 0;
+      let minutes = 0;
+      if (deliveryTimeStr) {
+        const [h, m] = deliveryTimeStr.split(':');
+        hours = parseInt(h, 10);
+        minutes = parseInt(m, 10);
+      }
+      const deliveryDate = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10), hours, minutes);
+      if (isNaN(deliveryDate.getTime())) return false;
+      return Date.now() > deliveryDate.getTime();
+    } catch (err) {
+      return false;
+    }
+  };
+
   const filteredOrders = orders.filter((o) => {
     const searchVal = (search || '').toLowerCase();
     const matchesSearch = 
@@ -579,6 +599,7 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
                   // Perfect order checks: No issues in deposit and pallet
                   const isPerfect = order.deposit_status === 'OK' && order.pallet_status === 'OK';
                   const hasIssues = order.deposit_status === '❌' || order.pallet_status === '❌';
+                  const overdue = isOrderOverdue(order.deliveryDate, order.deliveryTime, order.status);
                   
                   const rowClass = isPerfect 
                     ? 'bg-emerald-500/5 hover:bg-emerald-500/10 dark:bg-emerald-950/10 dark:hover:bg-emerald-950/20 text-emerald-950 dark:text-emerald-100' 
@@ -587,7 +608,19 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
                     : 'bg-amber-500/5 hover:bg-amber-500/10 dark:bg-amber-950/10 dark:hover:bg-amber-950/20 text-amber-950 dark:text-amber-100';
 
                   return (
-                    <tr key={order.order_number || order.id || idx} className={`transition-all duration-150 ${rowClass}`}>
+                    <motion.tr 
+                      key={order.id || `${order.order_number || 'order'}-${idx}`} 
+                      animate={overdue ? {
+                        boxShadow: ["0px 0px 0px rgba(239, 68, 68, 0)", "0px 0px 10px rgba(239, 68, 68, 0.4)", "0px 0px 0px rgba(239, 68, 68, 0)"],
+                        backgroundColor: ["rgba(254, 242, 242, 0.45)", "rgba(254, 242, 242, 0.9)", "rgba(254, 242, 242, 0.45)"]
+                      } : {}}
+                      transition={{ repeat: Infinity, duration: 2.2, ease: "easeInOut" }}
+                      className={`transition-all duration-150 ${
+                        overdue 
+                          ? 'border-r-4 border-r-rose-600 font-medium' 
+                          : rowClass
+                      }`}
+                    >
                       {/* Hour */}
                       <td className="p-3.5 whitespace-nowrap font-medium text-slate-500 dark:text-slate-400">
                         {order.timestamp ? new Date(order.timestamp).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' }) : '—'}
@@ -598,6 +631,17 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
                         <span className="font-mono bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-1 rounded">
                           {order.order_number}
                         </span>
+                        {order.deliveryDate ? (
+                          <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span>{order.deliveryDate} {order.deliveryTime || ''}</span>
+                            {overdue && (
+                              <span className="text-[9px] font-black bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 px-1.5 py-0.5 rounded animate-pulse shrink-0">איחור אספקה</span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-[9px] text-slate-350 dark:text-slate-600 italic mt-1.5">לא נקבע מועד</div>
+                        )}
                       </td>
 
                       {/* Customer Name */}
@@ -678,7 +722,7 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
-                    </tr>
+                    </motion.tr>
                   );
                 })}
               </tbody>

@@ -10,6 +10,8 @@ export interface Order {
   rejection_reason?: string;
   status: 'ממתין' | 'בטיפול' | 'בדרך' | 'נמסר' | 'בוטל';
   total_amount?: number;
+  deliveryDate?: string;
+  deliveryTime?: string;
 }
 
 export interface DictionaryItem {

@@ -64,6 +64,8 @@ export async function sheetsFetcher(url: string) {
           else if (header === "Qty Per Pallet" || header === "כמות למשטח") cleanKey = "qty_per_pallet";
           else if (header === "Requires Bag" || header === "דרוש בלה") cleanKey = "requires_bag";
           else if (header === "Requires Pallet" || header === "דרוש משטח") cleanKey = "requires_pallet";
+          else if (header === "Delivery Date" || header === "תאריך אספקה" || header === "תאריך יעד") cleanKey = "deliveryDate";
+          else if (header === "Delivery Time" || header === "שעת אספקה" || header === "שעת יעד") cleanKey = "deliveryTime";
           
           obj[cleanKey] = val;
         });

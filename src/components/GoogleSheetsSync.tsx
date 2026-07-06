@@ -22,7 +22,10 @@ import {
   Edit3,
   Check,
   AlertTriangle,
-  FolderOpen
+  FolderOpen,
+  Trash2,
+  X,
+  Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/firebase';
@@ -45,6 +48,8 @@ interface SheetOrder {
   status: string;
   rejection_reason?: string;
   total_amount?: number;
+  deliveryDate?: string;
+  deliveryTime?: string;
 }
 
 interface SheetDictionaryItem {
@@ -82,7 +87,19 @@ export default function GoogleSheetsSync() {
   const [editingOrder, setEditingOrder] = useState<SheetOrder | null>(null);
   const [editStatus, setEditStatus] = useState('');
   const [editRejection, setEditRejection] = useState('');
+  const [editDeliveryDate, setEditDeliveryDate] = useState('');
+  const [editDeliveryTime, setEditDeliveryTime] = useState('');
   const [savingOrder, setSavingOrder] = useState(false);
+
+  // Inline Editing Dictionary States
+  const [editingDictSku, setEditingDictSku] = useState<string | null>(null);
+  const [editDictName, setEditDictName] = useState('');
+  const [editDictQty, setEditDictQty] = useState(40);
+  const [editDictBag, setEditDictBag] = useState('לא');
+  const [editDictPallet, setEditDictPallet] = useState('כן');
+
+  // Deletion Confirmation State
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'customer' | 'dict'; id: string; name: string } | null>(null);
 
   // New Dictionary Item State
   const [newSku, setNewSku] = useState('');
@@ -211,6 +228,12 @@ export default function GoogleSheetsSync() {
     return result;
   };
 
+  // Global Instant Sync Refresh
+  const refreshAll = () => {
+    addLog("מבצע רענון מיידי של כל הנתונים...");
+    fetchLiveOrdersAndCustomers(true);
+  };
+
   // Handle Order Status Editing & Sync back to both log & customer tab
   const handleSaveOrderEdit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,7 +249,9 @@ export default function GoogleSheetsSync() {
         orderId: editingOrder.order_number,
         status: editStatus,
         rejectionReason: editRejection,
-        customerName: editingOrder.customer_name
+        customerName: editingOrder.customer_name,
+        deliveryDate: editDeliveryDate,
+        deliveryTime: editDeliveryTime
       };
 
       const result = await updateSheetData(payload);
@@ -240,14 +265,16 @@ export default function GoogleSheetsSync() {
         if (docToUpdate) {
           await updateDoc(doc(db, 'orders', docToUpdate.id), {
             status: editStatus,
-            rejection_reason: editRejection
+            rejection_reason: editRejection,
+            deliveryDate: editDeliveryDate,
+            deliveryTime: editDeliveryTime
           });
           addLog(`✓ נתוני Firestore סונכרנו בהצלחה עם סטטוס הגליון החדש.`);
         }
 
         // Close and refresh
         setEditingOrder(null);
-        fetchLiveOrdersAndCustomers(true);
+        refreshAll();
       } else {
         throw new Error(result.error || "תשובת שרת שלילית");
       }
@@ -256,6 +283,129 @@ export default function GoogleSheetsSync() {
       addLog(`❌ עדכון הזמנה נכשל: ${err.message}`);
     } finally {
       setSavingOrder(false);
+    }
+  };
+
+  // Deletion Confirmation Handlers
+  const triggerDeleteCustomer = (customerName: string) => {
+    setDeleteConfirm({
+      type: 'customer',
+      id: customerName,
+      name: customerName
+    });
+  };
+
+  const triggerDeleteDictionary = (sku: string, name: string) => {
+    setDeleteConfirm({
+      type: 'dict',
+      id: sku,
+      name: name
+    });
+  };
+
+  const executeDelete = async () => {
+    if (!deleteConfirm) return;
+    const { type, id } = deleteConfirm;
+    setDeleteConfirm(null);
+
+    try {
+      if (type === 'customer') {
+        addLog(`מבצע מחיקה של כרטיס לקוח "${id}"...`);
+        const payload = {
+          action: 'deleteCustomer',
+          customerName: id
+        };
+        const result = await updateSheetData(payload);
+        if (result.success) {
+          addLog(`✓ כרטיס לקוח "${id}" נמחק בהצלחה מגליון גוגל!`);
+          if (selectedCustomer?.name === id) {
+            setSelectedCustomer(null);
+            setCustomerData([]);
+          }
+          refreshAll();
+        } else {
+          throw new Error(result.error || "שגיאה במחיקת הגליון");
+        }
+      } else if (type === 'dict') {
+        addLog(`מבצע מחיקת מק"ט "${id}" ממילון לוגיסטי...`);
+        const payload = {
+          action: 'deleteDictionaryItem',
+          sku: id
+        };
+        const result = await updateSheetData(payload);
+        if (result.success) {
+          addLog(`✓ מק"ט "${id}" נמחק בהצלחה מגליון גוגל!`);
+          
+          // Also delete from Firestore to stay in sync
+          const dictSnap = await getDocs(collection(db, 'dictionary'));
+          const docToDelete = dictSnap.docs.find(d => d.data().sku === id);
+          if (docToDelete) {
+            const { deleteDoc, doc } = await import('firebase/firestore');
+            await deleteDoc(doc(db, 'dictionary', docToDelete.id));
+            addLog(`✓ מק"ט "${id}" נמחק ממאגר Firestore.`);
+          }
+          refreshAll();
+        } else {
+          throw new Error(result.error || "שגיאה במחיקת המק\"ט");
+        }
+      }
+    } catch (err: any) {
+      console.error("Deletion failed:", err);
+      addLog(`❌ המחיקה נכשלה: ${err.message}`);
+      alert(`שגיאה בביצוע המחיקה: ${err.message}`);
+    }
+  };
+
+  // Inline Dictionary Editing Handlers
+  const startEditDict = (item: SheetDictionaryItem) => {
+    setEditingDictSku(item.sku);
+    setEditDictName(item.name);
+    setEditDictQty(item.qty_per_pallet);
+    setEditDictBag(item.requires_bag);
+    setEditDictPallet(item.requires_pallet);
+  };
+
+  const cancelEditDict = () => {
+    setEditingDictSku(null);
+  };
+
+  const saveEditDict = async (sku: string) => {
+    addLog(`שומר שינויים עבור מק"ט "${sku}"...`);
+    try {
+      const payload = {
+        action: 'updateDictionary',
+        sku: sku,
+        name: editDictName,
+        qtyPerPallet: editDictQty,
+        requiresBag: editDictBag,
+        requiresPallet: editDictPallet
+      };
+      const result = await updateSheetData(payload);
+      if (result.success) {
+        addLog(`✓ המק"ט "${sku}" עודכן בהצלחה בגליון!`);
+
+        // Update in Firestore to keep in sync
+        const dictSnap = await getDocs(collection(db, 'dictionary'));
+        const docToUpdate = dictSnap.docs.find(d => d.data().sku === sku);
+        if (docToUpdate) {
+          await updateDoc(doc(db, 'dictionary', docToUpdate.id), {
+            name: editDictName,
+            qty_per_pallet: Number(editDictQty),
+            requires_bag: editDictBag,
+            requires_pallet: editDictPallet
+          });
+          addLog(`✓ נתוני Firestore עודכנו בהתאמה.`);
+        }
+
+        setEditingDictSku(null);
+        refreshAll();
+      } else {
+        throw new Error(result.error || "שגיאה בעדכון המק\"ט");
+      }
+    } catch (err: any) {
+      console.error("Inline dictionary edit failed:", err);
+      addLog(`❌ עדכון מק"ט נכשל: ${err.message}`);
+      alert(`שגיאה בשמירת השינויים: ${err.message}`);
     }
   };
 
@@ -309,6 +459,26 @@ export default function GoogleSheetsSync() {
       addLog(`❌ הוספת מק"ט נכשלה: ${err.message}`);
     } finally {
       setSavingDict(false);
+    }
+  };
+
+  const isOrderOverdue = (deliveryDateStr?: string, deliveryTimeStr?: string, orderStatus?: string) => {
+    if (!deliveryDateStr) return false;
+    if (orderStatus === 'נמסר' || orderStatus === 'מבוטל' || orderStatus === 'בוטל') return false;
+    try {
+      const [year, month, day] = deliveryDateStr.split('-');
+      let hours = 0;
+      let minutes = 0;
+      if (deliveryTimeStr) {
+        const [h, m] = deliveryTimeStr.split(':');
+        hours = parseInt(h, 10);
+        minutes = parseInt(m, 10);
+      }
+      const deliveryDate = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10), hours, minutes);
+      if (isNaN(deliveryDate.getTime())) return false;
+      return Date.now() > deliveryDate.getTime();
+    } catch (err) {
+      return false;
     }
   };
 
@@ -461,37 +631,67 @@ export default function GoogleSheetsSync() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {liveOrders.map((order, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors">
-                            <td className="p-3 font-mono font-black text-blue-600 dark:text-blue-400">{order.order_number}</td>
-                            <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{order.customer_name}</td>
-                            <td className="p-3 text-slate-500 dark:text-slate-400">{order.warehouse}</td>
-                            <td className="p-3 max-w-[150px] truncate text-slate-600 dark:text-slate-400" title={order.items_string}>
-                              {order.items_string}
-                            </td>
-                            <td className="p-3 font-mono font-bold text-slate-800 dark:text-slate-200">
-                              {order.total_amount ? `₪${Number(order.total_amount).toLocaleString()}` : '₪0'}
-                            </td>
-                            <td className="p-3">
-                              <span className={`inline-block px-2.5 py-1 text-[10px] font-black rounded-full ${getStatusColor(order.status)}`}>
-                                {order.status}
-                              </span>
-                            </td>
-                            <td className="p-3">
-                              <button
-                                onClick={() => {
-                                  setEditingOrder(order);
-                                  setEditStatus(order.status);
-                                  setEditRejection(order.rejection_reason || '');
-                                }}
-                                className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-black bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:hover:bg-blue-950/60 dark:text-blue-400 rounded-lg border border-blue-200/40 cursor-pointer"
-                              >
-                                <Edit3 className="w-3 h-3" />
-                                ערוך שורה
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        {liveOrders.map((order, idx) => {
+                          const overdue = isOrderOverdue(order.deliveryDate, order.deliveryTime, order.status);
+                          return (
+                            <motion.tr 
+                              key={idx} 
+                              animate={overdue ? {
+                                boxShadow: ["0px 0px 0px rgba(239, 68, 68, 0)", "0px 0px 10px rgba(239, 68, 68, 0.4)", "0px 0px 0px rgba(239, 68, 68, 0)"],
+                                backgroundColor: ["rgba(254, 242, 242, 0.4)", "rgba(254, 242, 242, 0.85)", "rgba(254, 242, 242, 0.4)"]
+                              } : {}}
+                              transition={{ repeat: Infinity, duration: 2.2, ease: "easeInOut" }}
+                              className={`transition-colors ${
+                                overdue 
+                                  ? 'border-r-4 border-r-rose-600 font-medium' 
+                                  : 'hover:bg-slate-50/50 dark:hover:bg-slate-800/20'
+                              }`}
+                            >
+                              <td className="p-3">
+                                <div className="font-mono font-black text-blue-600 dark:text-blue-400">{order.order_number}</div>
+                                {order.deliveryDate ? (
+                                  <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <span>{order.deliveryDate} {order.deliveryTime || ''}</span>
+                                    {overdue && (
+                                      <span className="text-[9px] font-black bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 px-1.5 py-0.5 rounded animate-pulse shrink-0">איחור אספקה</span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-[9px] text-slate-350 dark:text-slate-600 italic">לא נקבע מועד</span>
+                                )}
+                              </td>
+                              <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{order.customer_name}</td>
+                              <td className="p-3 text-slate-500 dark:text-slate-400">{order.warehouse}</td>
+                              <td className="p-3 max-w-[150px] truncate text-slate-600 dark:text-slate-400" title={order.items_string}>
+                                {order.items_string}
+                              </td>
+                              <td className="p-3 font-mono font-bold text-slate-800 dark:text-slate-200">
+                                {order.total_amount ? `₪${Number(order.total_amount).toLocaleString()}` : '₪0'}
+                              </td>
+                              <td className="p-3">
+                                <span className={`inline-block px-2.5 py-1 text-[10px] font-black rounded-full ${getStatusColor(order.status)}`}>
+                                  {order.status}
+                                </span>
+                              </td>
+                              <td className="p-3">
+                                <button
+                                  onClick={() => {
+                                    setEditingOrder(order);
+                                    setEditStatus(order.status);
+                                    setEditRejection(order.rejection_reason || '');
+                                    setEditDeliveryDate(order.deliveryDate || '');
+                                    setEditDeliveryTime(order.deliveryTime || '');
+                                  }}
+                                  className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-black bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:hover:bg-blue-950/60 dark:text-blue-400 rounded-lg border border-blue-200/40 cursor-pointer"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                  ערוך שורה
+                                </button>
+                              </td>
+                            </motion.tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -572,16 +772,18 @@ export default function GoogleSheetsSync() {
                     {customerTabs.map((customer, idx) => {
                       const isSelected = selectedCustomer?.name === customer.name;
                       return (
-                        <button
+                        <div
                           key={idx}
-                          onClick={() => handleSelectCustomer(customer)}
-                          className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-right cursor-pointer transition-all ${
+                          className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-right transition-all group ${
                             isSelected 
                               ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/10 scale-[1.01]'
                               : 'bg-white hover:bg-slate-50/80 dark:bg-slate-900 dark:hover:bg-slate-800/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
                           }`}
                         >
-                          <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => handleSelectCustomer(customer)}
+                            className="flex-1 flex items-center gap-3 text-right cursor-pointer focus:outline-none"
+                          >
                             <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black ${
                               isSelected ? 'bg-white/20 text-white' : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                             }`}>
@@ -593,9 +795,26 @@ export default function GoogleSheetsSync() {
                                 {customer.rowCount} שורות היסטוריה
                               </p>
                             </div>
+                          </button>
+                          
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                triggerDeleteCustomer(customer.name);
+                              }}
+                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                isSelected
+                                  ? 'text-white hover:bg-white/20'
+                                  : 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30'
+                              }`}
+                              title={`מחק כרטיס לקוח ${customer.name}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <ChevronRight className={`w-4 h-4 ${isSelected ? 'text-white' : 'text-slate-300'}`} />
                           </div>
-                          <ChevronRight className={`w-4 h-4 ${isSelected ? 'text-white' : 'text-slate-300'}`} />
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -820,30 +1039,114 @@ export default function GoogleSheetsSync() {
                           <th className="p-3">כמות למשטח</th>
                           <th className="p-3">מצריך בלה</th>
                           <th className="p-3">מצריך משטח עץ</th>
+                          <th className="p-3 text-center">פעולות</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {dictionaryItems.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/40 transition-colors">
-                            <td className="p-3 font-mono font-black text-blue-600 dark:text-blue-400">{item.sku}</td>
-                            <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{item.name}</td>
-                            <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{item.qty_per_pallet} יח'</td>
-                            <td className="p-3">
-                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                                item.requires_bag === 'כן' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                {item.requires_bag}
-                              </span>
-                            </td>
-                            <td className="p-3">
-                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                                item.requires_pallet === 'כן' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                {item.requires_pallet}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                        {dictionaryItems.map((item, idx) => {
+                          const isEditing = editingDictSku === item.sku;
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50/40 transition-colors">
+                              {isEditing ? (
+                                <>
+                                  <td className="p-3 font-mono font-black text-blue-600 dark:text-blue-400">{item.sku}</td>
+                                  <td className="p-3">
+                                    <input
+                                      type="text"
+                                      value={editDictName}
+                                      onChange={(e) => setEditDictName(e.target.value)}
+                                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs text-right outline-none focus:border-blue-500 text-slate-800 dark:text-slate-100"
+                                    />
+                                  </td>
+                                  <td className="p-3">
+                                    <input
+                                      type="number"
+                                      value={editDictQty}
+                                      onChange={(e) => setEditDictQty(Number(e.target.value))}
+                                      className="w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 text-xs font-mono text-right outline-none focus:border-blue-500 text-slate-800 dark:text-slate-100"
+                                    />
+                                  </td>
+                                  <td className="p-3">
+                                    <select
+                                      value={editDictBag}
+                                      onChange={(e) => setEditDictBag(e.target.value)}
+                                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-1.5 py-1 text-xs text-right outline-none cursor-pointer text-slate-800 dark:text-slate-100"
+                                    >
+                                      <option value="כן">כן</option>
+                                      <option value="לא">לא</option>
+                                    </select>
+                                  </td>
+                                  <td className="p-3">
+                                    <select
+                                      value={editDictPallet}
+                                      onChange={(e) => setEditDictPallet(e.target.value)}
+                                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-1.5 py-1 text-xs text-right outline-none cursor-pointer text-slate-800 dark:text-slate-100"
+                                    >
+                                      <option value="כן">כן</option>
+                                      <option value="לא">לא</option>
+                                    </select>
+                                  </td>
+                                  <td className="p-3 text-center whitespace-nowrap">
+                                    <div className="flex justify-center gap-1.5">
+                                      <button
+                                        onClick={() => saveEditDict(item.sku)}
+                                        className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded cursor-pointer"
+                                        title="שמור"
+                                      >
+                                        <Check className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={cancelEditDict}
+                                        className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded cursor-pointer"
+                                        title="ביטול"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="p-3 font-mono font-black text-blue-600 dark:text-blue-400">{item.sku}</td>
+                                  <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{item.name}</td>
+                                  <td className="p-3 font-mono text-slate-500 dark:text-slate-400">{item.qty_per_pallet} יח'</td>
+                                  <td className="p-3">
+                                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      item.requires_bag === 'כן' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'
+                                    }`}>
+                                      {item.requires_bag}
+                                    </span>
+                                  </td>
+                                  <td className="p-3">
+                                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      item.requires_pallet === 'כן' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-500'
+                                    }`}>
+                                      {item.requires_pallet}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-center whitespace-nowrap">
+                                    <div className="flex justify-center gap-1.5">
+                                      <button
+                                        onClick={() => startEditDict(item)}
+                                        className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors cursor-pointer"
+                                        title="ערוך מק״ט"
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => triggerDeleteDictionary(item.sku, item.name)}
+                                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
+                                        title="מחק מהמילון"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -869,14 +1172,14 @@ export default function GoogleSheetsSync() {
               <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-800">
                 <h4 className="text-sm font-black text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
                   <Edit3 className="w-4 h-4 text-blue-600" />
-                  עדכון סטטוס הזמנה: {editingOrder.order_number}
+                  עדכון סטטוס ותזמון הזמנה: {editingOrder.order_number}
                 </h4>
                 <button
                   type="button"
                   onClick={() => setEditingOrder(null)}
                   className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
-                  <Square className="w-4 h-4" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
@@ -900,6 +1203,27 @@ export default function GoogleSheetsSync() {
                     <option value="נמסר">נמסר (Delivered)</option>
                     <option value="בוטל">מבוטל (Cancelled)</option>
                   </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-slate-400 font-bold block">תאריך אספקה מתוזמן:</label>
+                    <input
+                      type="date"
+                      value={editDeliveryDate}
+                      onChange={(e) => setEditDeliveryDate(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl py-2 px-3 text-xs text-right focus:outline-none focus:border-blue-500 text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-slate-400 font-bold block">שעת אספקה מתוזמנת:</label>
+                    <input
+                      type="time"
+                      value={editDeliveryTime}
+                      onChange={(e) => setEditDeliveryTime(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl py-2 px-3 text-xs text-right focus:outline-none focus:border-blue-500 text-slate-800 dark:text-slate-100"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-1.5">
@@ -932,6 +1256,60 @@ export default function GoogleSheetsSync() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Confirmation Dialog */}
+      <AnimatePresence>
+        {deleteConfirm && (
+          <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center z-[100] p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-950 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl text-right"
+            >
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="w-10 h-10 rounded-full bg-rose-100 dark:bg-rose-950/50 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-rose-600" />
+                </div>
+                <h4 className="text-sm font-black">אישור מחיקה סופית</h4>
+              </div>
+
+              <div className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                {deleteConfirm.type === 'customer' ? (
+                  <p>
+                    האם אתה בטוח שברצונך למחוק את כרטיס הלקוח <strong className="text-slate-850 dark:text-slate-100">"{deleteConfirm.name}"</strong>?
+                    <br />
+                    פעולה זו תמחק לחלוטין את הטאב בגליון גוגל. מחיקה זו אינה ניתנת לביטול!
+                  </p>
+                ) : (
+                  <p>
+                    האם אתה בטוח שברצונך למחוק את פריט המילון <strong className="text-slate-850 dark:text-slate-100">"{deleteConfirm.name}" ({deleteConfirm.id})</strong>?
+                    <br />
+                    המק"ט יוסר לצמיתות ממילון הלוגיסטיקה בגליון ובמאגר Firestore.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={executeDelete}
+                  className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-black rounded-xl cursor-pointer shadow-md shadow-red-500/10"
+                >
+                  כן, מחק לצמיתות
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirm(null)}
+                  className="px-4 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 cursor-pointer"
+                >
+                  ביטול
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
