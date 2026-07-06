@@ -129,7 +129,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
 // GET proxy for Google Sheets Apps Script Web App
 app.get('/api/sheets/proxy', async (req: Request, res: Response) => {
-  const url = 'https://script.google.com/macros/s/AKfycbwGjk4V6fpTKnnLsVApEwd4GBv0npoN4IfaSXK1CZdkpifiNNm1dfCk3dBuOe7sVK430g/exec';
+  const url = 'https://script.google.com/macros/s/AKfycbzZPSpu15sbrfuWVwzYEcSKYhTCXG6jPJlgqvKuBBCQaZTR8gT9n7YX3AXnaLZs_vThOA/exec';
   const queryString = new URLSearchParams(req.query as any).toString();
   const targetUrl = queryString ? `${url}?${queryString}` : url;
 
