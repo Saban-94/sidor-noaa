@@ -158,13 +158,31 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
     }
   }, [sheetOrders, soundAlertsEnabled]);
 
-  // Sync state with SWR Dictionary
+  // Sync state with SWR Dictionary with Firestore fallback
   useEffect(() => {
-    if (sheetDictionary && Array.isArray(sheetDictionary)) {
+    if (sheetDictionary && Array.isArray(sheetDictionary) && sheetDictionary.length > 0) {
       setDictionaryItems(sheetDictionary);
-      if (sheetDictionary.length > 0 && !selectedSku) {
+      if (!selectedSku) {
         setSelectedSku(sheetDictionary[0].sku);
       }
+    } else {
+      // Real-time fallback to Firestore dictionary collection
+      const q = collection(db, 'dictionary');
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const list: any[] = [];
+        snapshot.forEach((docSnap) => {
+          list.push({ id: docSnap.id, ...docSnap.data() });
+        });
+        if (list.length > 0) {
+          setDictionaryItems(list);
+          if (!selectedSku) {
+            setSelectedSku(list[0].sku);
+          }
+        }
+      }, (err) => {
+        console.error("Failed to read fallback dictionary from Firestore:", err);
+      });
+      return () => unsubscribe();
     }
   }, [sheetDictionary, selectedSku]);
 
