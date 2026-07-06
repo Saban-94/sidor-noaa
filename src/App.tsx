@@ -33,6 +33,19 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'orders' | 'customers' | 'dictionary' | 'chat' | 'settings'>('orders');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isSheetsOffline, setIsSheetsOffline] = useState(false);
+
+  // Subscribe to offline state change
+  useEffect(() => {
+    const handleOfflineChange = (e: Event) => {
+      const customEvent = e as CustomEvent<boolean>;
+      setIsSheetsOffline(customEvent.detail);
+    };
+    window.addEventListener('sheets-offline-change', handleOfflineChange);
+    return () => {
+      window.removeEventListener('sheets-offline-change', handleOfflineChange);
+    };
+  }, []);
 
   // Theme State
   const [isDark, setIsDark] = useState<boolean>(() => {
@@ -266,9 +279,11 @@ export default function App() {
           <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-800">
             <div className="flex justify-between items-center mb-1">
               <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">סטטוס מערכת</span>
-              <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse"></span>
+              <span className={`w-2.5 h-2.5 rounded-full ${isSheetsOffline ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse' : 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse'}`}></span>
             </div>
-            <p className="text-[11px] font-mono text-slate-300 tracking-tighter">REALTIME_CONN: OK</p>
+            <p className="text-[11px] font-mono text-slate-300 tracking-tighter">
+              {isSheetsOffline ? 'SHEETS_API: OFFLINE ⚠️' : 'SHEETS_API: ONLINE ✓'}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -292,7 +307,7 @@ export default function App() {
           <div className="text-center">
             <span className="text-[9px] font-mono text-slate-500 flex items-center justify-center gap-1">
               <Shield className="w-3 h-3 text-orange-500" />
-              SBN ERP v2.4 • ONLINE
+              SBN ERP v2.4 • {isSheetsOffline ? 'OFFLINE MODE' : 'ONLINE'}
             </span>
           </div>
         </div>
@@ -314,9 +329,9 @@ export default function App() {
             <div className="flex gap-5">
               <div className="flex flex-col">
                 <span className="text-[10px] text-slate-400">סטטוס מסד</span>
-                <span className="text-xs font-bold text-emerald-500 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  מחובר ל-Cloud Firestore
+                <span className={`text-xs font-bold flex items-center gap-1 ${isSheetsOffline ? 'text-red-500' : 'text-emerald-500'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isSheetsOffline ? 'bg-red-500' : 'bg-emerald-500'}`}></span>
+                  {isSheetsOffline ? 'חיבור Google Sheets נכשל' : 'מחובר ל-Google Sheets Live'}
                 </span>
               </div>
               <div className="flex flex-col">
@@ -382,6 +397,16 @@ export default function App() {
       {/* Background ambient glow/visual elements */}
       <div className="fixed -top-40 -left-40 w-96 h-96 bg-amber-500/5 dark:bg-amber-500/1 rounded-full blur-3xl pointer-events-none" />
       <div className="fixed -bottom-40 -right-40 w-96 h-96 bg-blue-500/5 dark:bg-blue-500/1 rounded-full blur-3xl pointer-events-none" />
+
+      {/* Floating Offline Notification */}
+      {isSheetsOffline && (
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 z-50 bg-red-600 dark:bg-red-950 text-white dark:text-red-100 px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-red-500 dark:border-red-900 animate-bounce">
+          <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping shrink-0"></span>
+          <p className="text-xs font-black">
+            שרת Google Sheets אינו זמין (Offline) • המערכת פועלת במצב מקומי מסונכרן
+          </p>
+        </div>
+      )}
     </div>
   );
 }

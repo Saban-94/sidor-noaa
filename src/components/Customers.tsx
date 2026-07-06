@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import useSWR from 'swr';
+import { sheetsFetcher } from '../lib/fetcher';
 import { 
   collection, 
   onSnapshot, 
@@ -7,7 +9,8 @@ import {
   deleteDoc, 
   doc, 
   query, 
-  where 
+  where,
+  getDocs
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Customer, Order } from '../types';
@@ -51,32 +54,74 @@ export default function Customers() {
   const [cUnreturnedPallets, setCUnreturnedPallets] = useState(0);
   const [cUnreturnedBags, setCUnreturnedBags] = useState(0);
 
-  // Listen to customers in real-time
+  const [rawCustomers, setRawCustomers] = useState<any[]>([]); // Firestore metadata
+
+  // 1. Fetch live customer sheet names
+  const { data: sheetCustomerNames } = useSWR(
+    '/api/sheets/proxy?action=getCustomerList',
+    sheetsFetcher,
+    { refreshInterval: 5000 }
+  );
+
+  // 2. Fetch live sheet orders
+  const { data: sheetOrders } = useSWR(
+    '/api/sheets/proxy?action=getLiveOrders',
+    sheetsFetcher,
+    { refreshInterval: 5000 }
+  );
+
+  // 3. Listen to Firestore customers for phone, email, address metadata in real-time
   useEffect(() => {
     const q = collection(db, 'customers');
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list: Customer[] = [];
+      const list: any[] = [];
       snapshot.forEach((docSnap) => {
-        list.push({ id: docSnap.id, ...docSnap.data() } as Customer);
+        list.push({ id: docSnap.id, ...docSnap.data() });
       });
-      setCustomers(list);
-      setLoading(false);
+      setRawCustomers(list);
     });
     return () => unsubscribe();
   }, []);
 
-  // Listen to orders to compute stats and display histories
+  // Sync sheet orders
   useEffect(() => {
-    const q = collection(db, 'orders');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const list: Order[] = [];
-      snapshot.forEach((docSnap) => {
-        list.push({ id: docSnap.id, ...docSnap.data() } as Order);
-      });
-      setOrders(list);
+    if (sheetOrders && Array.isArray(sheetOrders)) {
+      setOrders(sheetOrders);
+    }
+  }, [sheetOrders]);
+
+  // Merge SWR Customer Lists with Firestore metadata, live unreturned counts, and live balances
+  useEffect(() => {
+    if (!sheetCustomerNames || !Array.isArray(sheetCustomerNames)) {
+      return;
+    }
+
+    const merged = sheetCustomerNames.map((sheetCust: any) => {
+      const fsCust = rawCustomers.find(c => c.name.trim().toLowerCase() === sheetCust.name.trim().toLowerCase());
+      const custOrders = orders.filter(o => o.customer_name.trim().toLowerCase() === sheetCust.name.trim().toLowerCase());
+      
+      const unreturnedPallets = custOrders.filter(o => o.pallet_status === '❌' && o.status !== 'בוטל').length;
+      const unreturnedBags = custOrders.filter(o => o.deposit_status === '❌' && o.status !== 'בוטל').length;
+      
+      const totalAmountSum = custOrders
+        .filter(o => o.status !== 'בוטל')
+        .reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+
+      return {
+        id: fsCust?.id || sheetCust.name,
+        name: sheetCust.name,
+        phone: fsCust?.phone || 'לא צוין טלפון',
+        email: fsCust?.email || 'לא צוין אימייל',
+        address: fsCust?.address || 'לא צוין כתובת',
+        balance: fsCust?.balance !== undefined ? fsCust.balance : totalAmountSum,
+        unreturned_pallets: unreturnedPallets,
+        unreturned_bags: unreturnedBags,
+      };
     });
-    return () => unsubscribe();
-  }, []);
+
+    setCustomers(merged);
+    setLoading(false);
+  }, [sheetCustomerNames, rawCustomers, orders]);
 
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,6 +131,7 @@ export default function Customers() {
     }
 
     try {
+      // 1. Write to Firestore so metadata exists
       await addDoc(collection(db, 'customers'), {
         name: cName,
         phone: cPhone,
@@ -95,6 +141,44 @@ export default function Customers() {
         unreturned_pallets: Number(cUnreturnedPallets),
         unreturned_bags: Number(cUnreturnedBags)
       });
+      
+      // 2. Add placeholder order to initialize customer tab on Google Sheets
+      try {
+        const orderNum = `SBN-${Math.floor(10000 + Math.random() * 90000)}`;
+        const placeholderOrder = {
+          timestamp: new Date().toISOString(),
+          order_number: orderNum,
+          customer_name: cName,
+          warehouse: 'מחסן מרכז (רמלה)',
+          items_string: 'הקמת כרטיס לקוח - יתרת פתיחה',
+          deposit_status: Number(cUnreturnedBags) > 0 ? '❌' : 'OK' as const,
+          pallet_status: Number(cUnreturnedPallets) > 0 ? '❌' : 'OK' as const,
+          status: 'ממתין' as const,
+          rejection_reason: '',
+          total_amount: Number(cBalance)
+        };
+        
+        await addDoc(collection(db, 'orders'), placeholderOrder);
+
+        // Fetch remaining data to run a full sync All
+        const ordersSnap = await getDocs(collection(db, 'orders'));
+        const dictSnap = await getDocs(collection(db, 'dictionary'));
+        const allOrders = ordersSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        const allDict = dictSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        
+        await fetch('/api/sheets/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'syncAllFromFirebase',
+            orders: allOrders,
+            dictionary: allDict
+          })
+        });
+      } catch (syncErr) {
+        console.error("Sheets customer tab initialization failed:", syncErr);
+      }
+
       setShowAddModal(false);
       // Reset
       setCName('');

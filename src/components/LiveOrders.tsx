@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
+import useSWR from 'swr';
+import { sheetsFetcher } from '../lib/fetcher';
 import { 
   collection, 
   onSnapshot, 
@@ -100,40 +102,30 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
     }, 5000);
   };
 
-  // Fetch dictionary for product SKU selection
-  useEffect(() => {
-    const q = collection(db, 'dictionary');
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items: DictionaryItem[] = [];
-      snapshot.forEach((docSnap) => {
-        items.push({ id: docSnap.id, ...docSnap.data() } as DictionaryItem);
-      });
-      setDictionaryItems(items);
-      if (items.length > 0) {
-        setSelectedSku(items[0].sku);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+  // Poll live orders
+  const { data: sheetOrders, mutate: mutateOrders } = useSWR(
+    '/api/sheets/proxy?action=getLiveOrders',
+    sheetsFetcher,
+    { refreshInterval: 5000 }
+  );
 
-  // Live order snapshot listener
+  // Poll dictionary
+  const { data: sheetDictionary } = useSWR(
+    '/api/sheets/proxy?action=getDictionary',
+    sheetsFetcher,
+    { refreshInterval: 10000 }
+  );
+
+  // Sync state with SWR Orders
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('timestamp', 'desc'));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const liveOrders: Order[] = [];
+    if (sheetOrders && Array.isArray(sheetOrders)) {
+      setOrders(sheetOrders);
+      setLoading(false);
       
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        liveOrders.push({
-          id: docSnap.id,
-          ...data
-        } as Order);
-      });
-
       // Filter and check for new orders with issues (❌)
-      liveOrders.forEach((order) => {
-        if (!loadedOrderIdsRef.current.has(order.id)) {
+      sheetOrders.forEach((order) => {
+        const orderId = order.order_number || order.id || '';
+        if (orderId && !loadedOrderIdsRef.current.has(orderId)) {
           // If this is NOT the first load, and a new order arrives with a "❌" in deposit or pallet
           if (!isFirstLoadRef.current) {
             if (order.deposit_status === '❌' || order.pallet_status === '❌') {
@@ -151,21 +143,30 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
               );
             }
           }
-          loadedOrderIdsRef.current.add(order.id);
+          loadedOrderIdsRef.current.add(orderId);
         }
       });
-
-      isFirstLoadRef.current = false;
-      setOrders(liveOrders);
+      
+      if (sheetOrders.length > 0) {
+        isFirstLoadRef.current = false;
+      }
+    } else if (sheetOrders === undefined) {
+      // Still loading initially
+      setLoading(true);
+    } else {
       setLoading(false);
-    }, (error) => {
-      console.error("Firestore onSnapshot error:", error);
-      addToast("שגיאת חיבור בזמן אמת", "המערכת פועלת כרגע במצב לא מקוון חלקי.", "error");
-      setLoading(false);
-    });
+    }
+  }, [sheetOrders, soundAlertsEnabled]);
 
-    return () => unsubscribe();
-  }, [soundAlertsEnabled]);
+  // Sync state with SWR Dictionary
+  useEffect(() => {
+    if (sheetDictionary && Array.isArray(sheetDictionary)) {
+      setDictionaryItems(sheetDictionary);
+      if (sheetDictionary.length > 0 && !selectedSku) {
+        setSelectedSku(sheetDictionary[0].sku);
+      }
+    }
+  }, [sheetDictionary, selectedSku]);
 
   // Form handler for adding order
   const handleAddOrder = async (e: React.FormEvent) => {
@@ -188,7 +189,8 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
     const orderNum = `SBN-${Math.floor(10000 + Math.random() * 90000)}`;
 
     try {
-      await addDoc(collection(db, 'orders'), {
+      // 1. Write to Firestore
+      const newOrderData = {
         timestamp: new Date().toISOString(),
         order_number: orderNum,
         customer_name: customerName,
@@ -196,10 +198,32 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
         items_string: itemsStr || 'חומרי בניין מעורבים',
         deposit_status: depositStatus,
         pallet_status: palletStatus,
-        status: 'ממתין',
+        status: 'ממתין' as const,
         rejection_reason: depositStatus === '❌' || palletStatus === '❌' ? rejectionReason || 'ממתין להסדרת ערבון' : '',
         total_amount: Number(totalAmount)
-      });
+      };
+      
+      await addDoc(collection(db, 'orders'), newOrderData);
+
+      // 2. Synchronize to Google Sheets
+      try {
+        const ordersSnap = await getDocs(collection(db, 'orders'));
+        const dictSnap = await getDocs(collection(db, 'dictionary'));
+        const allOrders = ordersSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        const allDict = dictSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        
+        await fetch('/api/sheets/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'syncAllFromFirebase',
+            orders: allOrders,
+            dictionary: allDict
+          })
+        });
+      } catch (syncErr) {
+        console.error("Sync to Sheets failed:", syncErr);
+      }
 
       setShowAddModal(false);
       // Reset state
@@ -209,6 +233,9 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
       setQuantity(1);
       setDepositStatus('OK');
       setPalletStatus('OK');
+      
+      // Trigger instant revalidate
+      mutateOrders();
     } catch (err) {
       console.error("Error creating order:", err);
       alert("שגיאה ברישום ההזמנה בשרת");
@@ -217,8 +244,32 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
 
   const handleUpdateStatus = async (orderId: string, newStatus: Order['status']) => {
     try {
+      const matchedOrder = orders.find(o => o.id === orderId);
+      
+      // Update Firestore
       const orderRef = doc(db, 'orders', orderId);
       await updateDoc(orderRef, { status: newStatus });
+      
+      // Update Google Sheets
+      if (matchedOrder) {
+        try {
+          await fetch('/api/sheets/proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'updateOrder',
+              orderId: matchedOrder.order_number,
+              status: newStatus,
+              rejectionReason: matchedOrder.rejection_reason || '',
+              customerName: matchedOrder.customer_name
+            })
+          });
+        } catch (syncErr) {
+          console.error("Sheets updateOrder call failed:", syncErr);
+        }
+      }
+      
+      mutateOrders();
     } catch (err) {
       console.error("Error updating status:", err);
     }
@@ -226,8 +277,32 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
 
   const handleUpdateRejection = async (orderId: string, text: string) => {
     try {
+      const matchedOrder = orders.find(o => o.id === orderId);
+      
+      // Update Firestore
       const orderRef = doc(db, 'orders', orderId);
       await updateDoc(orderRef, { rejection_reason: text });
+      
+      // Update Google Sheets
+      if (matchedOrder) {
+        try {
+          await fetch('/api/sheets/proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'updateOrder',
+              orderId: matchedOrder.order_number,
+              status: matchedOrder.status,
+              rejectionReason: text,
+              customerName: matchedOrder.customer_name
+            })
+          });
+        } catch (syncErr) {
+          console.error("Sheets updateOrder reason call failed:", syncErr);
+        }
+      }
+      
+      mutateOrders();
     } catch (err) {
       console.error("Error updating rejection text:", err);
     }
@@ -237,7 +312,29 @@ export default function LiveOrders({ soundAlertsEnabled }: LiveOrdersProps) {
     if (confirm("האם למחוק הזמנה זו מהיומן?")) {
       try {
         await deleteDoc(doc(db, 'orders', orderId));
+        
+        // Sync to Sheets
+        try {
+          const ordersSnap = await getDocs(collection(db, 'orders'));
+          const dictSnap = await getDocs(collection(db, 'dictionary'));
+          const allOrders = ordersSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+          const allDict = dictSnap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+          
+          await fetch('/api/sheets/proxy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'syncAllFromFirebase',
+              orders: allOrders,
+              dictionary: allDict
+            })
+          });
+        } catch (syncErr) {
+          console.error("Sheets sync after delete failed:", syncErr);
+        }
+        
         addToast("הזמנה נמחקה", "ההזמנה הוסרה מיומן המערכת.", "success");
+        mutateOrders();
       } catch (err) {
         console.error("Error deleting order:", err);
       }
